@@ -28,6 +28,12 @@
 
       button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
 
+      #test{width:100%;padding:13px;border-radius:14px;font-size:14.5px;font-weight:600;
+        background:var(--card2);color:#cfeaff;margin-bottom:8px;
+        border:1px solid var(--line);transition:transform .08s}
+      #test:active{transform:scale(.985)}
+      #test.on{background:linear-gradient(180deg,#5a8f3f,#3f6e2a);color:#fff;border-color:transparent}
+
       #play{width:100%;padding:17px;border-radius:16px;font-size:17px;font-weight:600;
         background:linear-gradient(180deg,#2b8fd6,#1f6ea8);color:#fff;
         box-shadow:0 6px 20px rgba(0,0,0,.35);margin-bottom:12px;transition:transform .08s}
@@ -45,7 +51,9 @@
         padding:7px 4px 2px;font-size:11.5px;color:var(--dim);font-variant-numeric:tabular-nums}
       .viz-readout b{color:#b9c3d6;font-weight:600}
       .beat-pill{background:#1d3a4d;color:#9fd8ff;border-radius:999px;padding:3px 10px;
-        font-size:11.5px;font-weight:600;white-space:nowrap}
+        font-size:11.5px;font-weight:600;white-space:nowrap;transition:background .2s}
+      .beat-pill.left{background:#5a3a1d;color:#ffd6b0}
+      .beat-pill.right{background:#1d3a5a;color:#b0d6ff}
 
       input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:34px;background:transparent;margin:2px 0 0}
       input[type=range]::-webkit-slider-runnable-track{height:6px;border-radius:3px;background:var(--card2)}
@@ -92,12 +100,14 @@
   </head>
 
   <body>
+
     <header>
       <h1 id="title">Batimento</h1>
       <span class="sub" id="subtitle">duas ondas em L / R — o batimento acontece no ar</span>
       <button id="langBtn" aria-label="language">PT</button>
     </header>
 
+    <button id="test">▶ Testar separado</button>
     <button id="play">▶ Tocar</button>
 
     <section class="card viz-card">
@@ -139,7 +149,7 @@
         <summary id="infoSum">info</summary>
       </details>
     </footer>
-
+    
     <div class="card" id="infoCard" style="display:none">
       <p style="font-size:12px;color:var(--dim);line-height:1.6;margin:0" id="infoBody"></p>
     </div>
@@ -155,6 +165,10 @@
           subtitle: 'duas ondas em L / R — o batimento acontece no ar',
           play: '▶ Tocar',
           stop: '■ Parar',
+          test: '▶ Testar separado',
+          testStop: '■ Parar teste',
+          testLeft: 'L',
+          testRight: 'R',
           labelFreq: 'Frequência central',
           labelBeat: 'Taxa de batimento',
           semitoneDown: '− semitom',
@@ -168,6 +182,9 @@
             'boa parte — e interferem no ambiente, não na sua cabeça. Onde as ondas se somam em fase você ' +
             'escuta um reforço; onde se cancelam, um silêncio. Esse é o batimento: <b style="color:#b9c3d6">' +
             '|f_A − f_B|</b> reforços por segundo.' +
+            '<br><br><b style="color:#b9c3d6">Botão "Testar separado":</b> toca a onda A sozinha por 1 s, ' +
+            'depois a onda B sozinha por 1 s, alternando. Serve para confirmar que cada lado está realmente ' +
+            'tocando a sua frequência. Aperte de novo (ou aperte Tocar) para voltar.' +
             '<br><br><b style="color:#b9c3d6">A geometria importa:</b> os dois alto-falantes estão em pontos ' +
             'diferentes, então o padrão de interferência depende de onde você está. Mexa a cabeça e a ' +
             'profundidade do batimento muda. Isso é física real. De fone, cada ouvido recebe apenas um tom ' +
@@ -193,6 +210,10 @@
           subtitle: 'two tones panned L / R — the beat happens in the air',
           play: '▶ Play',
           stop: '■ Stop',
+          test: '▶ Test separately',
+          testStop: '■ Stop test',
+          testLeft: 'L',
+          testRight: 'R',
           labelFreq: 'Centre frequency',
           labelBeat: 'Beat rate = spread',
           semitoneDown: '− semitone',
@@ -205,6 +226,9 @@
             'hard-panned to opposite sides. Both reach both ears — mostly — and interfere in the room, not in ' +
             'your head. Where the waves add in phase you hear a swell; where they cancel, a dip. That\'s the ' +
             'beat: <b style="color:#b9c3d6">|f_A − f_B|</b> swells per second.' +
+            '<br><br><b style="color:#b9c3d6">The "Test separately" button:</b> plays tone A alone for 1 s, ' +
+            'then tone B alone for 1 s, alternating. Useful to confirm each side is really playing its own ' +
+            'frequency. Press again (or press Play) to return.' +
             '<br><br><b style="color:#b9c3d6">Geometry matters:</b> the two drivers are in different places, so ' +
             'the interference pattern depends on where you sit. Move your head and the beat depth changes. ' +
             'That\'s real physics. On headphones each ear gets only one tone and you\'d hear binaural beats — ' +
@@ -233,11 +257,21 @@
       /* ------------------------------------------------------------------ state */
       const S = { freq: 261.6256, beat: 2.0, vol: 0.6 };
 
+      /* Playing mode:
+        - 'idle'    : both tones silent
+        - 'together': both tones playing, hard L / R
+        - 'test'    : alternating, one tone at a time (1 s each side)
+      */
+      let playMode = 'idle';
+      /* Which side is currently sounding, in test mode. */
+      let testSide = 'left';
+      let testAnchor = 0;              // ac.currentTime at start of current 1 s slice
+      const TEST_SLICE = 1.0;          // seconds per side
+
       /* ------------------------------------------------------- slider mappings */
       const F_MIN = 60, F_MAX = 1200, B_MAX = 80;
       const fFromSlider = v => F_MIN * Math.pow(F_MAX / F_MIN, v);
       const sliderFromF = f => Math.log(f / F_MIN) / Math.log(F_MAX / F_MIN);
-
       const bFromSlider = v => B_MAX * Math.pow(Math.max(0, Math.min(1, v)), 2.2);
       const sliderFromB = b => Math.pow(Math.max(0, Math.min(B_MAX, b)) / B_MAX, 1 / 2.2);
 
@@ -273,12 +307,16 @@
       const $ = s => document.querySelector(s);
       const fSlider = $('#fSlider'), bSlider = $('#bSlider'), vSlider = $('#vSlider');
       const fInput  = $('#fInput');
-      const playBtn = $('#play'), sweepBtn = $('#sweep');
+      const playBtn = $('#play'), testBtn = $('#test'), sweepBtn = $('#sweep');
+      const roBeat  = $('#roBeat');
       const cv = $('#viz'), cx = cv.getContext('2d');
 
       /* ----------------------------------------------------------------- audio */
-      let ac = null, oscA = null, oscB = null, panA = null, panB = null, master = null;
-      let running = false;
+      let ac = null;
+      let oscA = null, oscB = null;
+      let gA = null, gB = null;         // per-tone gain, driven by playMode
+      let panA = null, panB = null;     // hard L / R
+      let master = null;
       let audioStart = 0;
 
       function initAudio() {
@@ -292,11 +330,11 @@
         oscA = ac.createOscillator(); oscA.type = 'sine';
         oscB = ac.createOscillator(); oscB.type = 'sine';
 
-        const gA = ac.createGain(); gA.gain.value = 0.5;
-        const gB = ac.createGain(); gB.gain.value = 0.5;
+        gA = ac.createGain(); gA.gain.value = 0;
+        gB = ac.createGain(); gB.gain.value = 0;
 
-        panA = ac.createStereoPanner(); panA.pan.value = -1;
-        panB = ac.createStereoPanner(); panB.pan.value =  1;
+        panA = ac.createStereoPanner(); panA.pan.value = -1;  // hard left
+        panB = ac.createStereoPanner(); panB.pan.value =  1;  // hard right
 
         oscA.connect(gA); gA.connect(panA); panA.connect(master);
         oscB.connect(gB); gB.connect(panB); panB.connect(master);
@@ -305,6 +343,7 @@
         oscB.start(0);
         audioStart = ac.currentTime;
         applyFreqs();
+        applySideGains(true);
       }
 
       function rampParam(p, v, tc) {
@@ -324,13 +363,30 @@
       function applyFreqs() {
         if (!ac) return;
         const half = S.beat / 2;
-        rampParam(oscA.frequency, Math.max(S.freq - half, 1));
-        rampParam(oscB.frequency, Math.max(S.freq + half, 1));
+        rampParam(oscA.frequency, Math.max(S.freq - half, 1));  // A -> left
+        rampParam(oscB.frequency, Math.max(S.freq + half, 1));  // B -> right
+      }
+
+      /* Per-side gains depending on playMode + testSide.
+        - together: both 0.5 (same total loudness as before)
+        - test: active side 1.0, inactive 0.0
+        - idle: both 0 (master also ramps down, but this keeps it clean) */
+      function applySideGains(immediate) {
+        if (!ac || !gA || !gB) return;
+        const tc = immediate ? 0.005 : 0.04;
+        let a = 0, b = 0;
+        if (playMode === 'together') { a = 0.5; b = 0.5; }
+        else if (playMode === 'test') {
+          if (testSide === 'left')  { a = 1.0; b = 0; }
+          else                      { a = 0.0; b = 1.0; }
+        }
+        rampParam(gA.gain, a, tc);
+        rampParam(gB.gain, b, tc);
       }
 
       function applyVolume(dur) {
         if (!ac) return;
-        rampGain(running ? S.vol * 0.8 : 0, dur === undefined ? 0.12 : dur);
+        rampGain(playMode === 'idle' ? 0 : S.vol * 0.8, dur === undefined ? 0.12 : dur);
       }
 
       /* ------------------------------------------------------------ wake lock */
@@ -344,31 +400,73 @@
         if (wakeLock) { try { wakeLock.release(); } catch (e) {} wakeLock = null; }
       }
       document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible' && running) requestWake();
+        if (document.visibilityState === 'visible' && (playMode !== 'idle')) requestWake();
       });
 
       /* -------------------------------------------------------------- controls */
-      async function togglePlay() {
+
+      /* Play: together. Cancels any running test. */
+      async function startTogether() {
         if (!ac) initAudio();
         if (ac.state === 'suspended') { try { await ac.resume(); } catch (e) {} }
 
-        if (running) {
-          running = false;
+        if (playMode === 'together') {
+          playMode = 'idle';
+          applySideGains();
           applyVolume(0.15);
           playBtn.textContent = T('play');
           playBtn.classList.remove('on');
           releaseWake();
-        } else {
-          running = true;
-          audioStart = ac.currentTime;
-          applyFreqs();
-          applyVolume(0.15);
-          playBtn.textContent = T('stop');
-          playBtn.classList.add('on');
-          requestWake();
+          return;
         }
+
+        playMode = 'together';
+        audioStart = ac.currentTime;
+        testAnchor = 0;
+        applyFreqs();
+        applySideGains();
+        applyVolume(0.15);
+        playBtn.textContent = T('stop');
+        playBtn.classList.add('on');
+        testBtn.textContent = T('test');
+        testBtn.classList.remove('on');
+        requestWake();
+        syncLabels();
       }
-      playBtn.addEventListener('click', togglePlay);
+
+      /* Test: alternate single tones. Cancels together. */
+      async function toggleTest() {
+        if (!ac) initAudio();
+        if (ac.state === 'suspended') { try { await ac.resume(); } catch (e) {} }
+
+        if (playMode === 'test') {
+          playMode = 'idle';
+          applySideGains();
+          applyVolume(0.15);
+          testBtn.textContent = T('test');
+          testBtn.classList.remove('on');
+          releaseWake();
+          syncLabels();
+          return;
+        }
+
+        playMode = 'test';
+        testSide = 'left';
+        testAnchor = ac.currentTime;
+        audioStart = ac.currentTime;
+        applyFreqs();
+        applySideGains(true);
+        applyVolume(0.15);
+        testBtn.textContent = T('testStop');
+        testBtn.classList.add('on');
+        playBtn.textContent = T('play');
+        playBtn.classList.remove('on');
+        requestWake();
+        syncLabels();
+      }
+
+      playBtn.addEventListener('click', startTogether);
+      testBtn.addEventListener('click', toggleTest);
 
       fSlider.addEventListener('input', () => {
         S.freq = fFromSlider(parseFloat(fSlider.value));
@@ -395,7 +493,7 @@
 
       vSlider.addEventListener('input', () => {
         S.vol = parseFloat(vSlider.value);
-        if (running) applyVolume(0.06);
+        if (playMode !== 'idle') applyVolume(0.06);
         syncLabels();
       });
 
@@ -425,7 +523,7 @@
       sweepBtn.addEventListener('click', async () => {
         if (!ac) initAudio();
         if (ac.state === 'suspended') { try { await ac.resume(); } catch (e) {} }
-        if (!running) { await togglePlay(); }
+        if (playMode === 'idle') { await startTogether(); }
         sweeping = !sweeping;
         sweepBtn.classList.toggle('on', sweeping);
         if (sweeping) { sweepStart = ac.currentTime; sweepBtn.textContent = T('sweepActive'); }
@@ -450,7 +548,8 @@
         $('#title').textContent = T('title');
         $('#subtitle').textContent = T('subtitle');
         $('#langBtn').textContent = LANG === 'pt' ? 'PT' : 'EN';
-        playBtn.textContent = running ? T('stop') : T('play');
+        playBtn.textContent = (playMode === 'together') ? T('stop') : T('play');
+        testBtn.textContent = (playMode === 'test') ? T('testStop') : T('test');
         $('#lblFreq').textContent = T('labelFreq');
         $('#lblBeat').textContent = T('labelBeat');
         $('#semiDown').textContent = T('semitoneDown');
@@ -473,7 +572,18 @@
 
         $('#roA').textContent = fa.toFixed(1) + ' ' + T('hz');
         $('#roB').textContent = fb.toFixed(1) + ' ' + T('hz');
-        $('#roBeat').textContent = b.toFixed(b < 10 ? 2 : 1) + ' ' + T('roBeat');
+
+        /* beat pill adapts to mode */
+        if (playMode === 'test') {
+          roBeat.classList.toggle('left',  testSide === 'left');
+          roBeat.classList.toggle('right', testSide === 'right');
+          roBeat.textContent = testSide === 'left'
+            ? '◀ ' + T('testLeft') + ' ' + fa.toFixed(1)
+            : T('testRight') + ' ' + fb.toFixed(1) + ' ▶';
+        } else {
+          roBeat.classList.remove('left', 'right');
+          roBeat.textContent = b.toFixed(b < 10 ? 2 : 1) + ' ' + T('roBeat');
+        }
 
         $('#bNote').innerHTML =
           T('beatEvery') + ' <b>' + (b > 0 ? (1000 / b).toFixed(0) : '∞') + ' ' + T('ms') + '</b> · ' +
@@ -486,17 +596,16 @@
       }
 
       /* ------------------------------------------------------------ visualiser
-        One fixed time window (3 real seconds) across the canvas. The envelope
-        is env(t) = |cos(pi * S.beat * t)| using the real beat rate, so:
-          - at 2 Hz   -> 6 cycles across the window
-          - at 0.5 Hz -> 1.5 cycles, visibly shallower
-          - at 0.05 Hz-> ~0.15 of a cycle, almost flat
-          - at 0      -> exactly 1 everywhere, a straight line
-        No mode switch, no special case: the flattening is continuous. */
-      const WIN_SEC     = 3;      // real seconds visible on the canvas
-      const MARGIN      = 10;     // px of headroom top & bottom
-      const CARRIER_MIN = 6;      // visible carrier cycles at F_MIN
-      const CARRIER_MAX = 60;     // visible carrier cycles at F_MAX
+        One fixed 3-second window. In 'together' mode the envelope is the
+        real |cos(π·Δf·t)|. In 'test' mode only one tone is sounding, so there
+        is no interference and the envelope collapses to a flat 1 — visually
+        the same as Δf = 0. That's honest: a single tone has constant
+        amplitude, no beat. We nudge the effective beat used for drawing to 0
+        while in test mode. */
+      const WIN_SEC     = 3;
+      const MARGIN      = 10;
+      const CARRIER_MIN = 6;
+      const CARRIER_MAX = 60;
 
       let carrier = null, carrierW = 0, carrierN = 0, carrierCyc = 0;
 
@@ -536,15 +645,14 @@
         const mid = h / 2;
         const amp = Math.max(10, (mid - MARGIN) / 2);
 
-        /* Fixed real-time window, so the picture morphs continuously with beat.
-          At beat=0 the window is still 3 s of "one steady tone". */
+        /* Effective beat for the drawing. In test mode only one tone sounds,
+          so there is no interference: draw as if beat = 0 (flat envelope). */
+        const drawBeat = (playMode === 'test') ? 0 : S.beat;
+
         const win = WIN_SEC;
         const t0  = tau - win;
 
-        /* Envelope with the real beat rate — no special-casing. At beat=0 this
-          is identically 1 for all t, which is the correct constant amplitude
-          of sin(A)+sin(A). */
-        const env = t => Math.abs(Math.cos(Math.PI * S.beat * t));
+        const env = t => Math.abs(Math.cos(Math.PI * drawBeat * t));
 
         cx.clearRect(0, 0, w, h);
 
@@ -554,22 +662,19 @@
         cx.lineWidth = 1;
         cx.stroke();
 
-        /* silence-node verticals — only draw when beats are actually visible
-          in the window (skip when beat is 0). */
-        if (S.beat > 0) {
+        /* silence-node verticals — only when there are beats */
+        if (drawBeat > 0) {
           cx.strokeStyle = 'rgba(255,255,255,.06)';
-          const k0 = Math.ceil(S.beat * t0 - 0.5);
-          const k1 = Math.floor(S.beat * tau - 0.5);
+          const k0 = Math.ceil(drawBeat * t0 - 0.5);
+          const k1 = Math.floor(drawBeat * tau - 0.5);
           for (let k = k0; k <= k1; k++) {
-            const x = ((k + 0.5) / S.beat - t0) / win * w;
+            const x = ((k + 0.5) / drawBeat - t0) / win * w;
             if (x < 0 || x > w) continue;
             cx.beginPath(); cx.moveTo(x, 6); cx.lineTo(x, h - 6); cx.stroke();
           }
         }
 
-        /* dashed theoretical envelope ±2·env (blue). At beat=0 this is a pair
-          of straight horizontal lines at ±2·amp — the correct sum's constant
-          envelope. As beat decreases it smoothly flattens; no jump. */
+        /* dashed theoretical envelope */
         cx.setLineDash([4, 4]);
         cx.strokeStyle = 'rgba(63,193,255,.85)';
         cx.lineWidth = 1.4;
@@ -584,7 +689,7 @@
         }
         cx.setLineDash([]);
 
-        /* shaded band between -env and +env */
+        /* shaded band */
         cx.beginPath();
         for (let x = 0; x <= w; x += 2) {
           const t = t0 + (x / w) * win;
@@ -599,12 +704,12 @@
         cx.closePath();
         const grad = cx.createLinearGradient(0, mid - 2 * amp, 0, mid + 2 * amp);
         grad.addColorStop(0,   'rgba(233,237,245,.04)');
-        grad.addColorStop(0.5, running ? 'rgba(233,237,245,.14)' : 'rgba(233,237,245,.07)');
+        grad.addColorStop(0.5, playMode !== 'idle' ? 'rgba(233,237,245,.14)' : 'rgba(233,237,245,.07)');
         grad.addColorStop(1,   'rgba(233,237,245,.04)');
         cx.fillStyle = grad;
         cx.fill();
 
-        /* frozen inner wave: sum = 2 * env(t) * carrier(x) */
+        /* frozen inner wave */
         cx.beginPath();
         for (let x = 0; x <= w; x += 1) {
           const t = t0 + (x / w) * win;
@@ -612,11 +717,13 @@
           const y = mid - 2 * env(t) * amp * c;
           x === 0 ? cx.moveTo(x, y) : cx.lineTo(x, y);
         }
-        cx.strokeStyle = running ? 'rgba(233,237,245,.72)' : 'rgba(233,237,245,.35)';
+        cx.strokeStyle = playMode !== 'idle'
+          ? 'rgba(233,237,245,.72)'
+          : 'rgba(233,237,245,.35)';
         cx.lineWidth = 1.0;
         cx.stroke();
 
-        /* crisp outer envelope line on top */
+        /* crisp outer envelope line */
         cx.beginPath();
         for (let x = 0; x <= w; x += 2) {
           const t = t0 + (x / w) * win;
@@ -632,29 +739,46 @@
         cx.lineWidth = 1.2;
         cx.stroke();
 
-        /* moving dot at the right edge — advances only while running */
-        if (running) {
+        /* dot at the right edge — only while something is playing */
+        if (playMode !== 'idle') {
           const yNow = mid - 2 * env(tau) * amp;
           const halo = cx.createRadialGradient(w - 2, yNow, 0, w - 2, yNow, 15);
-          halo.addColorStop(0, 'rgba(255,138,91,.55)');
-          halo.addColorStop(1, 'rgba(255,138,91,0)');
+          /* colour reflects active side in test mode */
+          const col = (playMode === 'test' && testSide === 'right')
+            ? 'rgba(63,160,255,'
+            : 'rgba(255,138,91,';
+          halo.addColorStop(0, col + '.55)');
+          halo.addColorStop(1, col + '0)');
           cx.fillStyle = halo;
           cx.beginPath(); cx.arc(w - 2, yNow, 15, 0, Math.PI * 2); cx.fill();
 
           cx.beginPath();
           cx.arc(w - 2, yNow, 6, 0, Math.PI * 2);
-          cx.fillStyle = '#ff8a5b';
+          cx.fillStyle = (playMode === 'test' && testSide === 'right')
+            ? '#3fa0ff'
+            : '#ff8a5b';
           cx.fill();
         }
       }
 
-      /* Animation clock advances only while running, so stop = freeze. */
+      /* Animation clock advances only while something is playing. */
       let animTau = 0, lastPerf = 0;
 
       function tick(now) {
         requestAnimationFrame(tick);
         const dt = lastPerf ? Math.min((now - lastPerf) / 1000, 0.1) : 0;
         lastPerf = now;
+
+        /* test-mode alternation: schedule on the audio clock */
+        if (playMode === 'test' && ac) {
+          const elapsed = ac.currentTime - testAnchor;
+          if (elapsed >= TEST_SLICE) {
+            testSide = (testSide === 'left') ? 'right' : 'left';
+            testAnchor += TEST_SLICE;
+            applySideGains();
+            syncLabels();
+          }
+        }
 
         if (sweeping && ac) {
           const pr = (ac.currentTime - sweepStart) / SWEEP_DUR;
@@ -667,7 +791,7 @@
           }
         }
 
-        if (running) animTau += dt;
+        if (playMode !== 'idle') animTau += dt;
         draw(animTau);
       }
 
